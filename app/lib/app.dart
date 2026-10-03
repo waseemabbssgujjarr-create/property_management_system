@@ -1,0 +1,84 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'core/config/app_config.dart';
+import 'core/router/app_router.dart';
+import 'core/state/locale_state.dart';
+import 'core/theme/app_theme.dart';
+
+/// Root widget. Initializes Supabase and wires up theme + locale + routing.
+class MunshiApp extends ConsumerStatefulWidget {
+  const MunshiApp({super.key});
+
+  @override
+  ConsumerState<MunshiApp> createState() => _MunshiAppState();
+}
+
+class _MunshiAppState extends ConsumerState<MunshiApp> {
+  bool _supabaseInitialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initSupabase();
+  }
+
+  Future<void> _initSupabase() async {
+    await Supabase.initialize(
+      url: AppConfig.instance.supabaseUrl,
+      anonKey: AppConfig.instance.supabaseAnonKey,
+      debug: AppConfig.instance.isDev,
+    );
+    if (mounted) {
+      setState(() => _supabaseInitialized = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final locale = ref.watch(localeSyncProvider);
+    final router = ref.watch(routerProvider);
+
+    // Show a minimal loading screen until Supabase is initialized
+    if (!_supabaseInitialized) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        home: const Scaffold(
+          body: Center(
+            child: CircularProgressIndicator(),
+          ),
+        ),
+      );
+    }
+
+    return MaterialApp.router(
+      debugShowCheckedModeBanner: AppConfig.instance.isDev,
+      title: AppConfig.instance.appName,
+
+      // ── Theme ──────────────────────────────────────────────────────────
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.system,
+
+      // ── Locale + RTL ───────────────────────────────────────────────────
+      locale: locale,
+      supportedLocales: const [
+        Locale('ur'),
+        Locale('en'),
+      ],
+      localizationsDelegates: const [
+        // AppLocalizations.delegate, // uncomment after flutter gen-l10n
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+
+      // ── Router ─────────────────────────────────────────────────────────
+      routerConfig: router,
+    );
+  }
+}
