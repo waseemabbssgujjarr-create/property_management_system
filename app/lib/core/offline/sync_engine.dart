@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:uuid/uuid.dart';
+
+import '../platform/file_support.dart';
 
 import '../errors/app_error.dart';
 import '../network/supabase_client.dart';
@@ -82,7 +83,7 @@ class SyncEngine {
       id: Value(opId),
       idempotencyKey: Value(iKey),
       operationType: Value(operationType),
-      tableName: Value(tableName),
+      targetTable: Value(tableName),
       rowId: Value(rowId),
       payload: Value(jsonEncode(payload)),
       attachmentPath: Value(attachmentPath),
@@ -186,11 +187,11 @@ class SyncEngine {
     payload['idempotency_key'] = op.idempotencyKey;
 
     try {
-      await _supabase.from(op.tableName).insert(payload);
+      await _supabase.from(op.targetTable).insert(payload);
     } on PostgrestException catch (e) {
       // Unique constraint on idempotency_key = already inserted (duplicate submission)
       if (e.code == '23505') {
-        debugPrint('Idempotency: ${op.tableName}/${op.idempotencyKey} already exists');
+        debugPrint('Idempotency: ${op.targetTable}/${op.idempotencyKey} already exists');
         return; // Not an error — treat as success
       }
       rethrow;
@@ -204,22 +205,25 @@ class SyncEngine {
 
     // Financial tables cannot be updated
     const financialTables = {'payments', 'deal_events', 'audit_log'};
-    if (financialTables.contains(op.tableName)) {
+    if (financialTables.contains(op.targetTable)) {
       throw const FinancialIntegrityError('Financial records cannot be updated');
     }
 
-    await _supabase.from(op.tableName).update(payload).eq('id', op.rowId!);
+    await _supabase.from(op.targetTable).update(payload).eq('id', op.rowId!);
   }
 
   Future<void> _processDelete(SyncOperation op) async {
     if (op.rowId == null) return;
     // All deletes are soft-deletes (set deleted_at)
-    await _supabase.from(op.tableName).update({
+    await _supabase.from(op.targetTable).update({
       'deleted_at': DateTime.now().toIso8601String(),
     }).eq('id', op.rowId!);
   }
 
   Future<void> _processUpload(SyncOperation op) async {
+    // File uploads are not supported on web
+    if (kIsWeb) return;
+
     final localPath = op.attachmentPath;
     if (localPath == null) return;
 

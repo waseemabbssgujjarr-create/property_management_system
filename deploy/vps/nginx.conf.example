@@ -1,0 +1,222 @@
+# MUNSHI — Nginx virtual host for property.aderalabs.tech
+# Target OS:  AlmaLinux 9.8 (Nginx user: nginx)
+# TLS model:  Cloudflare Full (strict) + Cloudflare Origin Certificate
+#             (NOT Let's Encrypt — Certbot HTTP-01 cannot pass challenges
+#              when the domain is behind Cloudflare orange-cloud proxy.)
+#
+# ── PRE-REQUISITES ────────────────────────────────────────────────────────
+# 1. In Cloudflare Dashboard → SSL/TLS, set mode to "Full (strict)".
+# 2. In Cloudflare Dashboard → SSL/TLS → Origin Server → Create Certificate:
+#      - Hostnames: property.aderalabs.tech, *.aderalabs.tech  (or just the one)
+#      - Key type: RSA (2048) or EC (recommended)
+#      - Validity: 15 years
+#    Download the two files as:
+#      origin.crt   → private key counterpart is  origin.key
+# 3. Upload them to the VPS:
+#      sudo mkdir -p /etc/ssl/munshi
+#      sudo chmod 700 /etc/ssl/munshi
+#      # Copy origin.crt content (PEM) into the file:
+#      sudo nano /etc/ssl/munshi/origin.crt
+#      sudo nano /etc/ssl/munshi/origin.key
+#      sudo chmod 600 /etc/ssl/munshi/origin.key
+#      sudo chmod 644 /etc/ssl/munshi/origin.crt
+#
+# ── INSTALLATION ─────────────────────────────────────────────────────────
+#   sudo cp nginx.conf.example /etc/nginx/conf.d/munshi.conf
+#   # Edit paths/domain if needed, then:
+#   sudo nginx -t
+#   sudo systemctl reload nginx
+#
+# DO NOT modify /etc/nginx/nginx.conf or any other vhost.
+
+# ── Cloudflare real-IP passthrough ───────────────────────────────────────
+# Cloudflare proxies ALL traffic through its own IP ranges.
+# Without this block, Nginx logs Cloudflare IPs rather than visitor IPs,
+# and any IP-based rate-limiting would target Cloudflare, not real clients.
+# Source: https://www.cloudflare.com/ips/
+# Update periodically (or automate with: curl https://www.cloudflare.com/ips-v4/).
+geo $cloudflare_ip {
+    default          0;
+    # IPv4 ranges — current as of 2026-10
+    103.21.244.0/22  1;
+    103.22.200.0/22  1;
+    103.31.4.0/22    1;
+    104.16.0.0/13    1;
+    104.24.0.0/14    1;
+    108.162.192.0/18 1;
+    131.0.72.0/22    1;
+    141.101.64.0/18  1;
+    162.158.0.0/15   1;
+    172.64.0.0/13    1;
+    173.245.48.0/20  1;
+    188.114.96.0/20  1;
+    190.93.240.0/20  1;
+    197.234.240.0/22 1;
+    198.41.128.0/17  1;
+    # IPv6 ranges
+    2400:cb00::/32   1;
+    2606:4700::/32   1;
+    2803:f800::/32   1;
+    2405:b500::/32   1;
+    2405:8100::/32   1;
+    2a06:98c0::/29   1;
+    2c0f:f248::/32   1;
+}
+
+map $cloudflare_ip $real_client_ip {
+    1 $http_cf_connecting_ip;   # Cloudflare passes the real IP in this header
+    0 $remote_addr;             # Direct connection — use socket IP
+}
+
+# ── HTTP block: redirect to HTTPS (handled by Cloudflare, but belt+braces) ─
+# Cloudflare intercepts HTTP → HTTPS before it reaches the VPS when "Always
+# Use HTTPS" is enabled in the Dashboard. This block handles the rare case
+# where Cloudflare is bypassed (e.g. maintenance mode, grey-cloud testing).
+server {
+    listen 80;
+    listen [::]:80;
+    server_name property.aderalabs.tech;
+
+    # Health check on port 80 (useful when Cloudflare is in grey-cloud mode).
+    location = /health {
+        access_log off;
+        return 200 "OK\n";
+        add_header Content-Type text/plain;
+    }
+
+    return 301 https://$host$request_uri;
+}
+
+# ── HTTPS server ──────────────────────────────────────────────────────────
+server {
+    # Nginx ≥ 1.25: use standalone http2 directive.
+    # If you're on Nginx < 1.25 (check: nginx -v), use instead:
+    #   listen 443 ssl http2;
+    #   listen [::]:443 ssl http2;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+
+    server_name property.aderalabs.tech;
+
+    # ── TLS — Cloudflare Origin Certificate ──────────────────────────────
+    # These files are created during the prerequisite steps above.
+    # Cloudflare's CA is trusted by Cloudflare's edge — it does NOT need
+    # to be trusted by browsers because end-users only ever see Cloudflare's
+    # own browser-facing certificate.
+    ssl_certificate     /etc/ssl/munshi/origin.crt;
+    ssl_certificate_key /etc/ssl/munshi/origin.key;
+
+    # Modern TLS — TLSv1.3 preferred, TLSv1.2 as fallback.
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers   ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # ── Hide server version ──────────────────────────────────────────────
+    # Prevents fingerprinting. Set in the server block in case the
+    # global nginx.conf does not have it.
+    server_tokens off;
+
+    # ── Document root (deploy.sh writes here) ─────────────────────────────
+    root  /var/www/munshi/current;
+    index index.html;
+
+    # ── Real-IP logging ───────────────────────────────────────────────────
+    # Use $real_client_ip (set by the geo/map blocks above) in the log format
+    # so you see actual visitor IPs, not Cloudflare edge IPs.
+    # To use a custom log format, add to /etc/nginx/nginx.conf:
+    #   log_format munshi '$real_client_ip - $remote_user [$time_local] "$request" '
+    #                     '$status $body_bytes_sent "$http_referer" "$http_user_agent"';
+    # Then uncomment the format name below:
+    access_log /var/log/nginx/munshi_access.log combined;
+    # access_log /var/log/nginx/munshi_access.log munshi;
+    error_log  /var/log/nginx/munshi_error.log warn;
+
+    # ── Security headers ─────────────────────────────────────────────────
+    # Cloudflare may also set some of these; duplication is harmless.
+    # The VPS-level headers act as a backstop if Cloudflare settings change.
+    add_header X-Frame-Options          "SAMEORIGIN"                     always;
+    add_header X-Content-Type-Options   "nosniff"                        always;
+    add_header Referrer-Policy          "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy       "geolocation=(), microphone=(self), camera=(self)" always;
+
+    # Strict-Transport-Security — tells Cloudflare edge + any non-CF path
+    # to use HTTPS for 1 year. Do NOT add preload until you are certain.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Content-Security-Policy
+    # connect-src must cover:
+    #   - https://<YOUR_PROJECT>.supabase.co   (REST / Auth / Storage API)
+    #   - wss://<YOUR_PROJECT>.supabase.co     (Realtime)
+    # Replace YOUR_PROJECT_ID with your actual Supabase project reference.
+    add_header Content-Security-Policy
+        "default-src 'self'; \
+         script-src 'self' 'unsafe-inline'; \
+         style-src 'self' 'unsafe-inline'; \
+         img-src 'self' data: https:; \
+         font-src 'self' data: https://fonts.gstatic.com; \
+         connect-src 'self' \
+             https://YOUR_PROJECT_ID.supabase.co \
+             wss://YOUR_PROJECT_ID.supabase.co \
+             https://*.supabase.co \
+             wss://*.supabase.co; \
+         worker-src 'self' blob:; \
+         frame-ancestors 'none';"
+        always;
+
+    # ── Flutter web SPA routing ───────────────────────────────────────────
+    # ALL paths must serve index.html so GoRouter handles client-side routes.
+    # Without this, direct navigation to /home or /deals returns 404.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # ── Static asset caching ──────────────────────────────────────────────
+    # Flutter build outputs content-hashed filenames — safe to cache 1 year.
+    location ~* \.(js|css|wasm|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|otf)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    # ── Flutter service worker ────────────────────────────────────────────
+    # Must never be cached — changing it is how app updates propagate.
+    location = /flutter_service_worker.js {
+        expires off;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+
+    # ── Version / manifest files — short-lived cache ─────────────────────
+    location ~* \.(json)$ {
+        expires 1h;
+        add_header Cache-Control "public";
+    }
+
+    # ── Gzip compression ─────────────────────────────────────────────────
+    # Cloudflare also compresses at the edge; Nginx-level gzip is useful
+    # for the Cloudflare → VPS leg and direct (grey-cloud) traffic.
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types
+        text/plain
+        text/css
+        text/javascript
+        application/javascript
+        application/json
+        application/wasm
+        image/svg+xml;
+    gzip_min_length 1024;
+
+    # ── Health check endpoint (used by health-check.sh and Cloudflare) ───
+    # Cloudflare can call this for health monitoring.
+    location = /health {
+        access_log off;
+        return 200 "OK\n";
+        add_header Content-Type text/plain;
+    }
+}

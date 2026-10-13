@@ -109,10 +109,15 @@ class DashboardRepository {
         stageCounts[stage] = (stageCounts[stage] ?? 0) + 1;
       }
 
-      // Expected commission (from RPC)
+      // Expected commission (from RPC) — RPC returns a scalar int
       int expectedCommissionRs = 0;
       try {
-        expectedCommissionRs = (results[0] as int?) ?? 0;
+        final rpcResult = results[0];
+        if (rpcResult is int) {
+          expectedCommissionRs = rpcResult;
+        } else if (rpcResult is num) {
+          expectedCommissionRs = rpcResult.toInt();
+        }
       } catch (_) {}
 
       return DashboardSummary(

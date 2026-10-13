@@ -31,13 +31,13 @@ class DealsRepository {
     int offset = 0,
   }) async {
     try {
+      // Build filter chain first, add order+range last so the type stays
+      // PostgrestFilterBuilder throughout the conditional blocks.
       var query = _client
           .from('deals')
           .select()
           .eq('dealer_id', dealerId)
-          .isFilter('deleted_at', null)
-          .order('created_at', ascending: false)
-          .range(offset, offset + limit - 1);
+          .isFilter('deleted_at', null);
 
       if (filterStage != null) {
         query = query.eq('stage', filterStage.dbValue);
@@ -46,7 +46,10 @@ class DealsRepository {
         query = query.eq('assigned_agent_id', filterAgentId);
       }
 
-      final data = await query;
+      final data = await query
+          .order('created_at', ascending: false)
+          .range(offset, offset + limit - 1);
+
       return (data as List)
           .map((m) => Deal.fromMap(m as Map<String, dynamic>))
           .toList();

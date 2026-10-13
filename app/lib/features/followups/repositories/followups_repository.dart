@@ -20,8 +20,7 @@ class FollowupsRepository {
           .from('followups')
           .select('*, parties(name, phone, photo_url)')
           .eq('dealer_id', dealerId)
-          .isFilter('deleted_at', null)
-          .order('due_at');
+          .isFilter('deleted_at', null);
 
       if (pendingOnly) {
         query = query.eq('status', 'pending');
@@ -35,7 +34,7 @@ class FollowupsRepository {
             .lt('due_at', tomorrowStart.toIso8601String());
       }
 
-      final data = await query.limit(limit);
+      final data = await query.order('due_at').limit(limit);
       return (data as List)
           .map((m) => Followup.fromMap(m as Map<String, dynamic>))
           .toList();

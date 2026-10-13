@@ -50,7 +50,7 @@ void main() {
 
     test('zero commission on zero price', () {
       const dealPrice = 0;
-      const comm = (dealPrice * 2.0 / 100).toInt();
+      final comm = (dealPrice * 2.0 / 100).toInt();
       expect(comm, equals(0));
     });
   });

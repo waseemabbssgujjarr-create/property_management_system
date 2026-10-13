@@ -1,10 +1,12 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
+
+import '../../core/platform/file_support.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -71,6 +73,7 @@ class _PhotoCaptureState extends State<PhotoCapture> {
   }
 
   Future<String?> _compressImage(String sourcePath) async {
+    if (kIsWeb) return sourcePath; // No compression on web
     try {
       final dir = await getTemporaryDirectory();
       final target = '${dir.path}/photo_${const Uuid().v4()}.jpg';
@@ -85,7 +88,7 @@ class _PhotoCaptureState extends State<PhotoCapture> {
       return result?.path;
     } catch (e) {
       debugPrint('Image compression failed: $e');
-      return sourcePath; // Return original on compression failure
+      return sourcePath;
     }
   }
 
@@ -204,9 +207,18 @@ class _PhotoPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ImageProvider image = localPath != null
-        ? FileImage(File(localPath!)) as ImageProvider
-        : NetworkImage(remoteUrl!);
+    // On web, use XFile.path as a blob URL; on native, use FileImage
+    final ImageProvider image;
+    if (localPath != null) {
+      if (kIsWeb) {
+        // image_picker on web returns a blob URL we can load directly
+        image = NetworkImage(localPath!);
+      } else {
+        image = FileImage(File(localPath!));
+      }
+    } else {
+      image = NetworkImage(remoteUrl!);
+    }
 
     return Stack(
       fit: StackFit.expand,

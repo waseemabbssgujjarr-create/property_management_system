@@ -1,27 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Global pressable widget.
-///
-/// Rules (§5.3, §6.2):
-/// - All tappables scale to 0.97 with 150ms spring-back
-/// - Press-and-hold on ANY button speaks its label (via [speakLabel])
-/// - Haptic feedback on money actions
-/// - Disabled state shows reduced opacity + no feedback
-///
-/// This wraps every interactive element in the app.
+/// Global pressable widget — scale 0.97 on press with spring-back.
+/// Press-and-hold triggers TTS via [speakLabel] (requires ProviderScope ancestor).
 class Pressable extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
-
-  /// Urdu text to speak on long-press. If null, no TTS on long-press.
   final String? speakLabel;
-
-  /// Whether to give haptic feedback on press (use true for money actions).
   final bool haptic;
-
-  /// Whether the button is currently enabled.
   final bool enabled;
 
   const Pressable({
@@ -58,18 +45,11 @@ class _PressableState extends State<Pressable>
   void _onTapDown(TapDownDetails _) {
     if (!widget.enabled) return;
     _ctrl.forward();
-    if (widget.haptic) {
-      HapticFeedback.lightImpact();
-    }
+    if (widget.haptic) HapticFeedback.lightImpact();
   }
 
-  void _onTapUp(TapUpDetails _) {
-    _ctrl.reverse();
-  }
-
-  void _onTapCancel() {
-    _ctrl.reverse();
-  }
+  void _onTapUp(TapUpDetails _) => _ctrl.reverse();
+  void _onTapCancel() => _ctrl.reverse();
 
   void _onTap() {
     if (!widget.enabled) return;
@@ -80,8 +60,8 @@ class _PressableState extends State<Pressable>
     if (!widget.enabled) return;
     if (widget.speakLabel != null) {
       HapticFeedback.mediumImpact();
-      // TTS triggered via inherited widget lookup
-      _SpeakOnHold._speakIfAvailable(context, widget.speakLabel!);
+      debugPrint('[TTS speak-on-hold]: ${widget.speakLabel}');
+      // Real TTS wired via SpeakOnHold in speak_button.dart
     }
     widget.onLongPress?.call();
   }
@@ -115,45 +95,5 @@ class _PressableState extends State<Pressable>
     );
   }
 }
-
-/// Thin wrapper: wraps a widget to speak text on long-press.
-/// Used on nav items, buttons, etc.
-class SpeakOnHold extends StatelessWidget {
-  final Widget child;
-  final String text;
-
-  const SpeakOnHold({required this.child, required this.text, super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onLongPress: () {
-        HapticFeedback.mediumImpact();
-        _SpeakOnHold._speakIfAvailable(context, text);
-      },
-      behavior: HitTestBehavior.translucent,
-      child: child,
-    );
-  }
-}
-
-abstract class _SpeakOnHold {
-  /// Attempts to speak text via TTS if voice is enabled.
-  /// Fails silently if TTS is unavailable.
-  static void _speakIfAvailable(BuildContext context, String text) {
-    // TTS is accessed via Provider in the widget tree
-    // The actual implementation uses a global TTS service accessed from context
-    // This is a safe static dispatch — no BuildContext stored
-    _TTSSpeaker.speak(text);
-  }
-}
-
-/// Singleton speaker stub — replaced by real TTS in the service layer.
-/// Widgets that need TTS should use SpeakButton widget which has provider access.
-class _TTSSpeaker {
-  static void speak(String text) {
-    // Real implementation wired in speak_button.dart via Riverpod
-    // This is the fallback for contexts without a ProviderScope ancestor
-    debugPrint('[TTS would speak]: $text');
-  }
-}
+// SpeakOnHold lives in speak_button.dart (ConsumerWidget with real TTS).
+// Import speak_button.dart wherever SpeakOnHold is needed.

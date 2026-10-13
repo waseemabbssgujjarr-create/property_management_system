@@ -1,9 +1,8 @@
-import 'dart:io';
 import 'package:drift/drift.dart';
-import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
+
+import 'db_connection_native.dart'
+    if (dart.library.html) 'db_connection_stub.dart';
 
 part 'drift_database.g.dart';
 
@@ -14,7 +13,7 @@ class SyncOperations extends Table {
   TextColumn get id             => text()();
   TextColumn get idempotencyKey => text().unique()();
   TextColumn get operationType  => text()();  // 'insert'|'update'|'delete'|'upload'
-  TextColumn get tableName      => text()();
+  TextColumn get targetTable    => text()();  // renamed from tableName to avoid Drift conflict
   TextColumn get rowId          => text().nullable()();
   TextColumn get payload        => text()();  // JSON string
   TextColumn get attachmentPath => text().nullable()();  // local file path
@@ -145,7 +144,10 @@ class CachedVoiceNotes extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-// ── Database ──────────────────────────────────────────────────────────────
+// Database connection is platform-conditional:
+// - Native: NativeDatabase backed by a real SQLite file
+// - Web: In-memory NativeDatabase (no persistent offline on web)
+// See db_connection_native.dart and db_connection_stub.dart
 
 @DriftDatabase(tables: [
   SyncOperations,
@@ -157,7 +159,7 @@ class CachedVoiceNotes extends Table {
   CachedVoiceNotes,
 ])
 class MunshiLocalDb extends _$MunshiLocalDb {
-  MunshiLocalDb() : super(_openConnection());
+  MunshiLocalDb() : super(openAppDatabase());
 
   @override
   int get schemaVersion => 1;
@@ -169,14 +171,6 @@ class MunshiLocalDb extends _$MunshiLocalDb {
       // Handle future schema migrations here
     },
   );
-}
-
-LazyDatabase _openConnection() {
-  return LazyDatabase(() async {
-    final dbFolder = await getApplicationDocumentsDirectory();
-    final dbPath = p.join(dbFolder.path, 'munshi_local.sqlite');
-    return NativeDatabase(File(dbPath));
-  });
 }
 
 // ── Provider ─────────────────────────────────────────────────────────────

@@ -1,10 +1,11 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/errors/app_error.dart';
 import '../../../core/network/supabase_client.dart';
+import '../../../core/platform/file_support.dart';
 import '../models/property_models.dart';
 
 class InventoryRepository {
@@ -24,9 +25,7 @@ class InventoryRepository {
           .from('properties')
           .select('*, property_photos(url, sort)')
           .eq('dealer_id', dealerId)
-          .isFilter('deleted_at', null)
-          .order('created_at', ascending: false)
-          .range(offset, offset + limit - 1);
+          .isFilter('deleted_at', null);
 
       if (filterStatus != null) {
         query = query.eq('status', filterStatus.dbValue);
@@ -35,7 +34,10 @@ class InventoryRepository {
         query = query.eq('kind', filterKind.dbValue);
       }
 
-      final data = await query;
+      final data = await query
+          .order('created_at', ascending: false)
+          .range(offset, offset + limit - 1);
+
       return (data as List)
           .map((m) => Property.fromMap(m as Map<String, dynamic>))
           .toList();
@@ -194,6 +196,7 @@ class InventoryRepository {
     required String localPath,
     int sort = 0,
   }) async {
+    if (kIsWeb) throw UnsupportedError('File upload not supported on web');
     try {
       final file = File(localPath);
       final ext = localPath.split('.').last.toLowerCase();

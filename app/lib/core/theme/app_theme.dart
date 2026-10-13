@@ -112,7 +112,7 @@ abstract final class AppTheme {
       ),
 
       // ── Cards ────────────────────────────────────────────────────────
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: isLight ? Colors.white : AppColors.surfaceDark,
         elevation: 0,
         shape: const RoundedRectangleBorder(borderRadius: AppSpacing.cardRadius),
@@ -200,7 +200,7 @@ abstract final class AppTheme {
       ),
 
       // ── Dialog ──────────────────────────────────────────────────────
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor: isLight ? Colors.white : AppColors.surfaceDark,
         shape: const RoundedRectangleBorder(borderRadius: AppSpacing.cardRadius),
         elevation: 0,

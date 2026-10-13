@@ -224,7 +224,7 @@ class _VoiceInputState extends ConsumerState<VoiceInput>
                                 spreadRadius: 2,
                               ),
                             ]
-                          : AppElevation.medium.cast(),
+                          : AppElevation.medium,
                     ),
                     child: Icon(
                       isRec ? Icons.stop_rounded : Icons.mic_rounded,
@@ -252,7 +252,3 @@ class _VoiceInputState extends ConsumerState<VoiceInput>
 }
 
 enum _RecordState { idle, recording, done }
-
-extension _BoxShadowCast on List<BoxShadow> {
-  List<BoxShadow> cast() => this;
-}

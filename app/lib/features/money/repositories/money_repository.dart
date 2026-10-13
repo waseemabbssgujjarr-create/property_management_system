@@ -1,10 +1,11 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/errors/app_error.dart';
 import '../../../core/network/supabase_client.dart';
+import '../../../core/platform/file_support.dart';
 import '../models/payment_models.dart';
 
 /// Money repository — append-only payments, receipt generation.
@@ -135,16 +136,16 @@ class MoneyRepository {
       var query = _client
           .from('payments')
           .select()
-          .eq('dealer_id', dealerId)
-          .order('occurred_at', ascending: false)
-          .range(offset, offset + limit - 1);
+          .eq('dealer_id', dealerId);
 
       if (dealId != null) query = query.eq('deal_id', dealId);
       if (kind != null) query = query.eq('kind', kind.dbValue);
       if (from != null) query = query.gte('occurred_at', from.toIso8601String());
       if (to != null) query = query.lte('occurred_at', to.toIso8601String());
 
-      final data = await query;
+      final data = await query
+          .order('occurred_at', ascending: false)
+          .range(offset, offset + limit - 1);
       return (data as List)
           .map((m) => Payment.fromMap(m as Map<String, dynamic>))
           .toList();
@@ -213,6 +214,7 @@ class MoneyRepository {
     required String paymentId,
     required String localPath,
   }) async {
+    if (kIsWeb) throw UnsupportedError('File upload not supported on web');
     try {
       final file = File(localPath);
       final ext = localPath.split('.').last;

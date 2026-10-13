@@ -38,7 +38,8 @@ class EncryptionService {
     final existingB64 = await _storage.read(key: storageKey);
 
     if (existingB64 != null) {
-      return enc.Key(base64.decode(existingB64) as Uint8List);
+      final bytes = base64.decode(existingB64);
+      return enc.Key(Uint8List.fromList(bytes));
     }
 
     // Generate new key
@@ -76,12 +77,12 @@ class EncryptionService {
 
     try {
       final key = await _getOrCreateKey(dealerId);
-      final ivAndCipher = base64.decode(ciphertext) as Uint8List;
+      final ivAndCipher = Uint8List.fromList(base64.decode(ciphertext));
 
       if (ivAndCipher.length < 16) return null;
 
-      final iv = enc.IV(ivAndCipher.sublist(0, 16) as Uint8List);
-      final cipherBytes = enc.Encrypted(ivAndCipher.sublist(16) as Uint8List);
+      final iv = enc.IV(Uint8List.fromList(ivAndCipher.sublist(0, 16)));
+      final cipherBytes = enc.Encrypted(Uint8List.fromList(ivAndCipher.sublist(16)));
 
       final encrypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.cbc));
       return encrypter.decrypt(cipherBytes, iv: iv);

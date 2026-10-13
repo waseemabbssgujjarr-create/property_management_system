@@ -1,0 +1,51 @@
+# MUNSHI — Production Environment Variables
+# Copy this file to /etc/munshi/environment on the VPS:
+#
+#   sudo cp deploy/vps/environment.example /etc/munshi/environment
+#   sudo chmod 600 /etc/munshi/environment
+#   sudo nano /etc/munshi/environment
+#
+# IMPORTANT:
+#   - Only the two Supabase public values below belong in this file.
+#   - deploy.sh reads them and bundles them into the Flutter web build.
+#   - The anon key is intentionally public — Supabase RLS enforces all access.
+#   - NEVER put service-role keys, DB passwords, or any server-side secret here.
+#   - NEVER commit this file to Git after filling in real values.
+
+# ── Supabase (Flutter web client — public values only) ─────────────────────
+# Find these in: Supabase Dashboard → Settings → API
+SUPABASE_URL=https://REPLACE_WITH_YOUR_PROJECT_REF.supabase.co
+SUPABASE_ANON_KEY=REPLACE_WITH_ANON_KEY_FROM_SUPABASE_DASHBOARD
+
+# ── App identity ────────────────────────────────────────────────────────────
+APP_ENV=production
+APP_NAME=Munshi
+APP_FLAVOR=prod
+
+# ── Feature flags ─────────────────────────────────────────────────────────
+# Conservative defaults for Phase 1 pilot — enable features as they are tested.
+FEATURE_WHATSAPP=false
+FEATURE_DEMAND_MATCHING=false
+FEATURE_DEALER_CIRCLES=false
+FEATURE_DOCUMENTS=true
+FEATURE_WEB_CONSOLE=false
+FEATURE_BILLING=true
+
+# ── SERVER-SIDE SECRETS — DO NOT PUT HERE ─────────────────────────────────
+# The following secrets must NEVER be in this file or any Flutter asset.
+# Set them via: supabase secrets set KEY=value
+#
+#   SUPABASE_SERVICE_ROLE_KEY
+#   WA_API_BASE_URL
+#   WA_API_KEY
+#   TWILIO_ACCOUNT_SID
+#   TWILIO_AUTH_TOKEN
+#   TWILIO_FROM_NUMBER
+#   LOCAL_SMS_API_URL
+#   LOCAL_SMS_API_KEY
+#   VOICE_API_URL
+#   VOICE_API_KEY
+#   META_APP_SECRET
+#
+# The WhatsApp credential encryption key is a database-level setting:
+#   ALTER DATABASE postgres SET app.wa_credential_key = 'your-32-char-random-key';

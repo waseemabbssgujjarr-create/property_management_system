@@ -1,0 +1,54 @@
+# Root-level gitignore for Munshi monorepo
+
+# Validation artifacts from build scripts
+validation_results.txt
+validation_stdout.txt
+validation_stderr.txt
+pub_get_output.txt
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/settings.json
+
+# Never commit environment files with real credentials
+# (this is a safety net — real credentials should never
+#  be written to any file in this repo)
+/deploy/vps/.env.prod
+/deploy/vps/environment
+*.env.local
+
+# Build outputs (app/ has its own .gitignore for build/)
+munshi-web.zip
+build_log.txt
+
+# Supabase local dev secrets
+supabase/.env
+supabase/config.local.toml
+
+# Environment secrets (all projects)
+.env
+.env.*
+!.env.example
+!.environment.example
+**/.env
+**/.env.*
+**/environment
+**/environment.*
+!**/.env.example
+!**/environment.example
+
+# Generated Flutter/Dart files
+**/.dart_tool/
+**/build/
+**/coverage/
+
+# Local dependency backups and diagnostic outputs
+app/pubspec.yaml.backup
+app/pubspec.yaml.backup2
+app/pub-get-output.txt

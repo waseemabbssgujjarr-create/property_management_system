@@ -1,9 +1,10 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:uuid/uuid.dart';
+
+import '../platform/file_support.dart';
 
 /// Voice recording service.
 ///
@@ -24,23 +25,41 @@ class VoiceRecordingService {
   }
 
   /// Start recording to a temp file. Returns the file path.
+  /// On web, path_provider is unavailable — record package handles temp path.
   Future<String?> startRecording({String? refId}) async {
     try {
       final hasPerms = await _recorder.hasPermission();
       if (!hasPerms) return null;
 
-      final dir = await getTemporaryDirectory();
       final id = refId ?? const Uuid().v4();
-      final path = '${dir.path}/voice_$id.m4a';
+      String path;
 
-      await _recorder.start(
-        RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          bitRate: 64000,
-          sampleRate: 22050,
-        ),
-        path: path,
-      );
+      if (kIsWeb) {
+        // On web, record package manages its own blob URL — we use a virtual path
+        path = '/voice_$id.m4a';
+      } else {
+        final dir = await getTemporaryDirectory();
+        path = '${dir.path}/voice_$id.m4a';
+      }
+
+      if (kIsWeb) {
+        await _recorder.start(
+          RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            bitRate: 64000,
+            sampleRate: 22050,
+          ),
+        );
+      } else {
+        await _recorder.start(
+          RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            bitRate: 64000,
+            sampleRate: 22050,
+          ),
+          path: path,
+        );
+      }
 
       _isRecording = true;
       _currentPath = path;
@@ -59,13 +78,17 @@ class VoiceRecordingService {
       _isRecording = false;
       if (path == null) return null;
 
-      final file = File(path);
-      final exists = await file.exists();
-      if (!exists) return null;
+      int durationSeconds = 0;
 
-      // Estimate duration from file size (rough: 64kbps Opus)
-      final bytes = await file.length();
-      final durationSeconds = (bytes * 8) ~/ 64000;
+      if (!kIsWeb) {
+        // On native: estimate duration from file size
+        final file = File(path);
+        final exists = await file.exists();
+        if (!exists) return null;
+        final bytes = await file.length();
+        durationSeconds = (bytes * 8) ~/ 64000;
+      }
+      // On web: duration estimation not available via File system
 
       _currentPath = null;
       return RecordingResult(

@@ -10,6 +10,7 @@ import '../../../core/state/app_mode.dart';
 import '../../../core/state/locale_state.dart';
 import '../../../core/state/voice_state.dart';
 import '../../../core/offline/sync_provider.dart';
+import '../../../core/services/permission_service.dart';
 import '../../auth/providers/session_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -21,7 +22,9 @@ class SettingsScreen extends ConsumerWidget {
     final voiceEnabled = ref.watch(voiceEnabledProvider);
     final locale = ref.watch(localeSyncProvider);
     final session = ref.watch(currentSessionProvider);
-    final syncState = ref.watch(syncEngineProvider);
+    // Initialize sync engine eagerly when settings screen is visible
+    ref.watch(syncEngineProvider);
+    final perms = ref.watch(permissionServiceProvider);
 
     return Scaffold(
       appBar: AppBar(title: Text('ترتیبات', style: AppTypography.urH2)),

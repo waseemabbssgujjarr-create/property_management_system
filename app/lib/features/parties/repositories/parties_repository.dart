@@ -29,8 +29,7 @@ class PartiesRepository {
           .select()
           .eq('dealer_id', dealerId)
           .isFilter('deleted_at', null)
-          .order('name')
-          .range(offset, offset + limit - 1);
+          .order('name');
 
       if (filterType != null) {
         query = query.eq('type', filterType.dbValue);
@@ -41,7 +40,7 @@ class PartiesRepository {
         );
       }
 
-      final data = await query;
+      final data = await query.range(offset, offset + limit - 1);
       // CNIC is stored encrypted; decrypt on read
       return await Future.wait((data as List)
           .map((m) => _fromMapWithDecrypt(m as Map<String, dynamic>, dealerId))
