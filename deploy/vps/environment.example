@@ -5,12 +5,14 @@
 #   sudo chmod 600 /etc/munshi/environment
 #   sudo nano /etc/munshi/environment
 #
-# IMPORTANT:
-#   - Only the two Supabase public values below belong in this file.
-#   - deploy.sh reads them and bundles them into the Flutter web build.
+# RULES:
+#   - Only public Supabase values (URL + anon key) belong in this file.
+#   - deploy.sh reads these values and bundles them into the Flutter web build.
 #   - The anon key is intentionally public — Supabase RLS enforces all access.
 #   - NEVER put service-role keys, DB passwords, or any server-side secret here.
 #   - NEVER commit this file to Git after filling in real values.
+#
+# deploy.sh will refuse to run if any required value is still a placeholder.
 
 # ── Supabase (Flutter web client — public values only) ─────────────────────
 # Find these in: Supabase Dashboard → Settings → API
@@ -22,17 +24,23 @@ APP_ENV=production
 APP_NAME=Munshi
 APP_FLAVOR=prod
 
-# ── Feature flags ─────────────────────────────────────────────────────────
-# Conservative defaults for Phase 1 pilot — enable features as they are tested.
+# ── Feature flags ───────────────────────────────────────────────────────────
+# Each flag controls whether that feature is compiled into the Flutter bundle.
+# Change any value to true/false to suit the deployment.
+# deploy.sh uses these values as-is; it does not override them.
+#
+# Phase 1 pilots: start conservative and enable features as they are tested.
 FEATURE_WHATSAPP=false
 FEATURE_DEMAND_MATCHING=false
 FEATURE_DEALER_CIRCLES=false
 FEATURE_DOCUMENTS=true
+# FEATURE_WEB_CONSOLE — set to true to enable the owner web console.
+# The web console is off by default. Enable it deliberately when ready.
 FEATURE_WEB_CONSOLE=false
 FEATURE_BILLING=true
 
-# ── SERVER-SIDE SECRETS — DO NOT PUT HERE ─────────────────────────────────
-# The following secrets must NEVER be in this file or any Flutter asset.
+# ── SERVER-SIDE SECRETS — DO NOT PUT HERE ───────────────────────────────────
+# The following secrets must NEVER appear in this file or any Flutter asset.
 # Set them via: supabase secrets set KEY=value
 #
 #   SUPABASE_SERVICE_ROLE_KEY

@@ -2,9 +2,11 @@
 
 **Server:** Contabo VPS — AlmaLinux 9.8 — 6 vCPU / 11 GiB RAM  
 **Domain:** https://property.aderalabs.tech  
+**Repository:** `https://github.com/waseemabbssgujjarr-create/property_management_system.git`
+**Deployment branch:** `deployment-prep/vps-almalinux`
 **Cloudflare:** Orange-cloud proxy in front of VPS (Full strict SSL mode)  
 **Stack:** Flutter Web → Nginx static serving  
-**Supabase:** Cloud-hosted (no backend on this VPS)
+**Supabase:** Cloud-hosted (no backend runs on this VPS)
 
 ---
 
@@ -25,9 +27,34 @@ Cloudflare handles browser-facing TLS; the VPS uses a Cloudflare Origin Certific
 
 ---
 
+## How deploy.sh works
+
+`deploy.sh` follows a strict ordering designed to protect the live site:
+
+1. **Pre-flight** — verifies tools, directories, and the environment file before modifying anything.
+2. **Working-tree check** — refuses to run on a dirty working tree (except `.env.prod`, which the script owns). Does not stash or discard developer changes.
+3. **Branch checkout** — fetches and checks out `DEPLOY_BRANCH` (default: `deployment-prep/vps-almalinux`). Fails clearly if the branch does not exist on the remote. Never silently deploys a different branch.
+4. **Environment load** — sources `/etc/munshi/environment` and validates all required values. Refuses placeholder values.
+5. **Write `.env.prod`** — writes public Supabase values into the Flutter asset file. A `trap` registered at script start resets this file to a placeholder on *any* exit — success or failure — so credentials are never left in the working tree.
+6. **`flutter pub get`** — installs dependencies.
+7. **`dart run build_runner build`** — generates `drift_database.g.dart` (required before `flutter analyze`).
+8. **Web platform check** — verifies `web/index.html` exists. Fails with a clear message if the web platform has not been initialised.
+9. **`flutter analyze`** — runs after code generation so generated types are available.
+10. **`flutter test`** — runs the test suite.
+11. **`flutter build web --release`** — produces the final bundle.
+12. **Stage release** — copies `build/web` to `/var/www/munshi/releases/TIMESTAMP/`.
+13. **`nginx -t`** — validates Nginx config *before* touching the live symlink. Aborts if invalid.
+14. **Atomic symlink swap** — updates `/var/www/munshi/current` only after `nginx -t` passes.
+15. **`systemctl reload nginx`** — non-disruptive reload. If reload fails, the previous symlink is restored automatically.
+16. **Prune** — removes old releases, keeping the 5 most recent.
+
+**On any failure:** the `trap` restores the previous symlink (if swapped), resets `.env.prod`, and exits non-zero. Nginx continues serving the previous working release throughout.
+
+---
+
 ## Prerequisites (one-time VPS setup)
 
-Run all commands as root, or as a sudo-capable user.
+Run all commands as root or as a sudo-capable user.
 
 ### 1. Install system packages
 
@@ -40,67 +67,63 @@ sudo dnf install -y nginx
 sudo systemctl enable --now nginx
 ```
 
-> **Do not install** `certbot` or `python3-certbot-nginx` — Certbot HTTP-01 challenges  
-> cannot pass when the domain is behind Cloudflare's orange-cloud proxy.  
-> TLS is handled by a Cloudflare Origin Certificate (see step 4).
+> **Do not install** `certbot` or `python3-certbot-nginx` — HTTP-01 challenges cannot
+> pass behind Cloudflare's orange-cloud proxy. TLS is handled by a Cloudflare Origin
+> Certificate (see step 4).
 
-### 2. Install Flutter SDK on the VPS
+### 2. Install Flutter SDK
 
-Flutter is needed on the VPS because `deploy.sh` runs `flutter build web`.
+Flutter is required on the VPS because `deploy.sh` runs `flutter build web` locally.
 
 ```bash
-# Clone stable Flutter at a well-known path
 sudo git clone https://github.com/flutter/flutter.git \
     -b stable --depth 1 /opt/flutter
 
-# Persist the PATH for all users
 echo 'export PATH="$PATH:/opt/flutter/bin"' \
     | sudo tee /etc/profile.d/flutter.sh
 source /etc/profile.d/flutter.sh
 
-# Bootstrap the web platform (downloads web SDK and Chrome driver binaries)
+# Bootstrap the web platform (downloads the web SDK)
 flutter precache --web
 flutter config --enable-web
-
-# Verify
 flutter --version
 ```
 
-> Flutter system dependencies on AlmaLinux 9 are covered by the packages in step 1.  
-> There is no `libglu1-mesa` equivalent needed for a web-only build on AlmaLinux.
+> All required system libraries for a web-only build are covered by the `dnf` packages in step 1.
 
 ### 3. Clone the repository
 
 ```bash
-sudo git clone https://github.com/YOUR_ORG/munshi-app.git /opt/munshi-app
+sudo git clone \
+    https://github.com/waseemabbssgujjarr-create/property_management_system.git \
+    /opt/munshi-app
 # Or with SSH:
-# sudo git clone git@github.com:YOUR_ORG/munshi-app.git /opt/munshi-app
+# sudo git clone \
+#     git@github.com:waseemabbssgujjarr-create/property_management_system.git \
+#     /opt/munshi-app
 ```
 
 ### 4. Set up Cloudflare Origin Certificate and Nginx
 
-**Cloudflare SSL mode (do this first):**
+**Set Cloudflare SSL mode first:**
 
 1. Cloudflare Dashboard → **SSL/TLS** → Overview → set mode to **Full (strict)**.
 2. Cloudflare Dashboard → **SSL/TLS** → **Origin Server** → **Create Certificate**.
    - Hostnames: `property.aderalabs.tech` (add `*.aderalabs.tech` if needed)
-   - Key type: EC (recommended) or RSA 2048
-   - Validity: 15 years
-3. Copy the **Certificate** and **Private Key** values shown in the dashboard.
+   - Key type: EC (recommended) or RSA 2048 — validity: 15 years
+3. Copy the Certificate and Private Key PEM blocks.
 
-**Install the certificate on the VPS:**
+**Install the certificate:**
 
 ```bash
 sudo mkdir -p /etc/ssl/munshi
 sudo chmod 700 /etc/ssl/munshi
 
-# Paste the certificate PEM block (begins -----BEGIN CERTIFICATE-----)
-sudo nano /etc/ssl/munshi/origin.crt
-# Paste the private key PEM block (begins -----BEGIN EC PRIVATE KEY-----)
-sudo nano /etc/ssl/munshi/origin.key
+sudo nano /etc/ssl/munshi/origin.crt   # paste -----BEGIN CERTIFICATE----- block
+sudo nano /etc/ssl/munshi/origin.key   # paste -----BEGIN EC PRIVATE KEY----- block
 
 sudo chmod 644 /etc/ssl/munshi/origin.crt
-sudo chmod 600 /etc/ssl/munshi/origin.key    # key readable by root only
+sudo chmod 600 /etc/ssl/munshi/origin.key
 ```
 
 **Install the Nginx vhost:**
@@ -109,61 +132,48 @@ sudo chmod 600 /etc/ssl/munshi/origin.key    # key readable by root only
 sudo cp /opt/munshi-app/deploy/vps/nginx.conf.example \
     /etc/nginx/conf.d/munshi.conf
 
-# Edit the file: replace YOUR_PROJECT_ID in the Content-Security-Policy
-# with your actual Supabase project reference (e.g. abcdefghijklmnop).
+# Edit: replace YOUR_PROJECT_ID in the Content-Security-Policy
+# with your Supabase project reference.
 sudo nano /etc/nginx/conf.d/munshi.conf
 
-# Validate and reload
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-> The vhost drops into `/etc/nginx/conf.d/` which AlmaLinux's default  
-> `/etc/nginx/nginx.conf` includes via `conf.d/*.conf`. This does **not**  
-> modify the main Nginx config or any other site's vhost.
+The vhost drops into `/etc/nginx/conf.d/` which AlmaLinux's default `nginx.conf` includes via `conf.d/*.conf`. It does **not** modify `/etc/nginx/nginx.conf` or any other site's vhost.
 
-### 5. Create deployment directories
+### 5. Create deployment directories and environment file
 
 ```bash
 sudo mkdir -p /var/www/munshi/releases
 sudo mkdir -p /etc/munshi
 
-# Optionally create a non-root deploy user
-# sudo useradd -r -s /sbin/nologin deployuser
-# sudo chown -R deployuser:deployuser /var/www/munshi
-```
-
-### 6. Create the environment file
-
-```bash
 sudo cp /opt/munshi-app/deploy/vps/environment.example /etc/munshi/environment
 sudo chmod 600 /etc/munshi/environment
 sudo nano /etc/munshi/environment
 ```
 
-Fill in **only** these two values (public — safe for the browser bundle):
+Fill in **at minimum** these two values:
 
 | Variable | Where to find it |
 |---|---|
 | `SUPABASE_URL` | Supabase Dashboard → Settings → API → Project URL |
 | `SUPABASE_ANON_KEY` | Supabase Dashboard → Settings → API → `anon` `public` key |
 
-Leave all server-side secrets **out of this file** — they go into Supabase Edge Function secrets.
+Adjust feature flags as needed. All server-side secrets go in Supabase Edge Function secrets — never here.
 
----
+### 6. Initialise Flutter web platform (first time only)
 
-## First-time Flutter web setup
-
-If the Flutter web platform has never been initialised in this repo:
+If the `web/` directory has not been committed to the deployment branch:
 
 ```bash
 cd /opt/munshi-app/app
 flutter create . --platforms web
 # Answer 'yes' to any merge prompts.
-# This creates web/index.html, web/manifest.json, web/favicon.png if missing.
+# Commit the generated web/ files to deployment-prep/vps-almalinux before deploying.
 ```
 
-You only need to do this once. Subsequent deploys use `deploy.sh` directly.
+`deploy.sh` checks for `web/index.html` and fails with a clear error if it is absent.
 
 ---
 
@@ -174,16 +184,11 @@ cd /opt/munshi-app
 sudo bash deploy/vps/deploy.sh
 ```
 
-The script:
+To deploy a different branch (overrides the default):
 
-1. Loads `/etc/munshi/environment` and validates no placeholder values remain.
-2. Writes real Supabase values into `app/.env.prod` (public anon key only).
-3. `flutter pub get` → `dart run build_runner build` (Drift codegen) → `flutter build web --release`
-4. Copies `build/web` to `/var/www/munshi/releases/TIMESTAMP/`.
-5. Atomically updates the `/var/www/munshi/current` symlink.
-6. `nginx -t` → `systemctl reload nginx`.
-7. Resets `app/.env.prod` to a placeholder (credentials live in the JS bundle).
-8. Prunes old releases, keeping the 5 most recent.
+```bash
+sudo DEPLOY_BRANCH=my-branch bash deploy/vps/deploy.sh
+```
 
 ---
 
@@ -193,7 +198,7 @@ The script:
 bash /opt/munshi-app/deploy/vps/health-check.sh https://property.aderalabs.tech
 ```
 
-Expected outcome: all PASS, no FAIL. Informational (INFO) items about Cloudflare are normal.
+Expected: all PASS, no FAIL. Informational (INFO) items about Cloudflare certificates and Server headers are normal and expected.
 
 ---
 
@@ -221,7 +226,7 @@ In **Supabase Dashboard → Authentication → Hooks**:
 - Hook type: Custom Access Token
 - Function: `public.custom_access_token_hook`
 
-Without this, RLS policies will not work (`auth.dealer_id()` returns NULL).
+Without this, RLS policies do not work (`auth.dealer_id()` returns NULL).
 
 ### WhatsApp credential encryption key
 
@@ -230,30 +235,17 @@ Without this, RLS policies will not work (`auth.dealer_id()` returns NULL).
 ALTER DATABASE postgres SET app.wa_credential_key = 'your-32-char-random-key';
 ```
 
-Generate a suitable key with:
-```bash
-openssl rand -base64 32
-```
+Generate a key: `openssl rand -base64 32`
 
 ### Server-side secrets (Edge Functions)
 
-Set these via `supabase secrets set` — **never** put them in `/etc/munshi/environment`:
+Set via `supabase secrets set` — **never** put these in `/etc/munshi/environment`:
 
-```bash
-supabase secrets set --env-file <(cat <<'EOF'
-SUPABASE_SERVICE_ROLE_KEY=...
-WA_API_BASE_URL=...
-WA_API_KEY=...
-TWILIO_ACCOUNT_SID=...
-TWILIO_AUTH_TOKEN=...
-TWILIO_FROM_NUMBER=...
-LOCAL_SMS_API_URL=...
-LOCAL_SMS_API_KEY=...
-VOICE_API_URL=...
-VOICE_API_KEY=...
-META_APP_SECRET=...
-EOF
-)
+```
+SUPABASE_SERVICE_ROLE_KEY, WA_API_BASE_URL, WA_API_KEY,
+TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER,
+LOCAL_SMS_API_URL, LOCAL_SMS_API_KEY,
+VOICE_API_URL, VOICE_API_KEY, META_APP_SECRET
 ```
 
 ---
@@ -261,19 +253,40 @@ EOF
 ## Security summary
 
 | Item | Status |
-|------|--------|
-| Supabase anon key in Flutter bundle | ✅ Intentional and safe — anon key is public by design. RLS enforces all access. |
-| Supabase service-role key | ✅ NEVER in Flutter — only in Supabase Edge Function secrets |
-| WA API key | ✅ NEVER in Flutter — only in Supabase Edge Function secrets |
-| DB password | ✅ NEVER on VPS — managed by Supabase |
-| `/etc/munshi/environment` | ✅ chmod 600 — readable only by root (or named deploy user) |
+|---|---|
+| Supabase anon key in Flutter bundle | ✅ Intentional — anon key is public by design; RLS enforces all access |
+| Supabase service-role key | ✅ Never in Flutter — Supabase Edge Function secrets only |
+| WA API key | ✅ Never in Flutter — Supabase Edge Function secrets only |
+| DB password | ✅ Never on VPS — managed by Supabase |
+| `.env.prod` with real credentials | ✅ Exists only during the build; trap resets it to placeholder on any exit |
+| `/etc/munshi/environment` | ✅ chmod 600 — readable only by root or named deploy user |
 | `/etc/ssl/munshi/origin.key` | ✅ chmod 600 — Cloudflare Origin Certificate private key |
-| Build artefacts in `/var/www/munshi/` | ✅ Owned by nginx user, world-readable files only |
-| Cloudflare SSL mode | ✅ Full (strict) — prevents Cloudflare from accepting a fake origin cert |
+| Build artefacts in `/var/www/munshi/` | ✅ Owned by nginx user; world-readable files only |
+| Cloudflare SSL mode | ✅ Full (strict) — prevents Cloudflare accepting an untrusted origin cert |
 
 ---
 
 ## Troubleshooting
+
+### deploy.sh refuses: "dirty working tree"
+
+The script will not run if the working tree has uncommitted changes (other than `.env.prod`, which the script owns). Commit or discard the changes first:
+
+```bash
+git status
+git diff
+# commit what you want to keep, then re-run
+```
+
+### deploy.sh refuses: "branch does not exist on remote"
+
+```bash
+git branch -r    # list available remote branches
+# Then either push your branch:
+git push origin deployment-prep/vps-almalinux
+# Or set DEPLOY_BRANCH to an existing branch:
+sudo DEPLOY_BRANCH=main bash deploy/vps/deploy.sh
+```
 
 ### 404 on deep links (e.g. /home, /deals)
 
@@ -289,11 +302,9 @@ Then: `sudo nginx -t && sudo systemctl reload nginx`
 
 ### App loads but Supabase calls fail (CORS / network error)
 
-Check browser DevTools console. Verify:
-
-1. `SUPABASE_URL` in `/etc/munshi/environment` is your actual project URL (not a placeholder).
-2. `https://property.aderalabs.tech` is listed in Supabase Dashboard → Auth → URL Configuration.
-3. The `connect-src` in `nginx.conf` includes your project's Supabase hostname.
+1. Check `SUPABASE_URL` in `/etc/munshi/environment` is the real project URL.
+2. Confirm `https://property.aderalabs.tech` is listed in Supabase Dashboard → Auth → URL Configuration.
+3. Check `connect-src` in `nginx.conf` includes your project's Supabase hostname.
 
 ### build_runner fails
 
@@ -303,24 +314,9 @@ flutter pub get
 dart run build_runner build --delete-conflicting-outputs
 ```
 
-### Nginx config fails validation after editing
+### Error 525 (SSL handshake failed) from Cloudflare
 
-```bash
-sudo nginx -t          # shows the exact error line
-sudo journalctl -u nginx --since "5 min ago"
-```
-
-### TLS: openssl shows "Cloudflare" cert issuer
-
-This is correct. The Cloudflare Origin Certificate on the VPS is never seen by browsers — Cloudflare presents its own browser-trusted cert. The openssl command connects to the Cloudflare edge, so it shows the Cloudflare cert.
-
-### Cloudflare shows "SSL handshake failed" error (Error 525)
-
-Cloudflare cannot reach the VPS on port 443, or the Origin Certificate is wrong.
-
-Check:
 1. `sudo systemctl status nginx` — is Nginx running?
 2. `sudo nginx -t` — is the config valid?
-3. `ls -la /etc/ssl/munshi/` — do origin.crt and origin.key exist and are they non-empty?
-4. The cert and key files are PEM format (begin with `-----BEGIN ...-----`).
-5. Firewall: port 443 is open to Cloudflare IP ranges (or to all, since Cloudflare proxies it).
+3. `ls -la /etc/ssl/munshi/` — do origin.crt and origin.key exist and are non-empty PEM files?
+4. Verify Cloudflare SSL/TLS mode is set to **Full (strict)**.
