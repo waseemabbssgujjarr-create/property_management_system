@@ -230,12 +230,59 @@ Without this, RLS policies do not work (`auth.dealer_id()` returns NULL).
 
 ### WhatsApp credential encryption key
 
-```sql
--- Run in Supabase SQL Editor (once, on production DB)
-ALTER DATABASE postgres SET app.wa_credential_key = 'your-32-char-random-key';
+The `store_wa_credentials()` and `get_wa_credentials()` database functions encrypt and decrypt WA API credentials using `pgp_sym_encrypt()` / `pgp_sym_decrypt()` from pgcrypto. The encryption key is read from the PostgreSQL GUC `app.wa_credential_key` at runtime — it is never stored in the database itself, in Flutter source, or in any file shipped to the browser.
+
+**Generate a key (32+ characters of randomness):**
+
+```bash
+openssl rand -base64 32
 ```
 
-Generate a key: `openssl rand -base64 32`
+**Configure the key in hosted Supabase:**
+
+In hosted Supabase, `ALTER DATABASE postgres SET` does not reliably propagate to PostgREST sessions (which is how Edge Functions via the service-role key connect). The correct approach is to set it on the `authenticator` role, which PostgREST uses for all connections:
+
+```sql
+-- Run in Supabase Dashboard → SQL Editor (as postgres / admin)
+ALTER ROLE authenticator SET app.wa_credential_key TO 'your-generated-key-here';
+```
+
+This makes the setting available to all roles that PostgREST switches to (`anon`, `authenticated`, `service_role`), and therefore to the `SECURITY DEFINER` functions called from Edge Functions.
+
+> **Alternative:** Supabase Dashboard → Project Settings → Database → Configuration → Custom Postgres Config → add `app.wa_credential_key` as a custom setting. This achieves the same effect through the UI.
+
+**Verify the key is set:**
+
+```sql
+-- Run as the authenticator role to confirm propagation
+SET ROLE authenticator;
+SELECT current_setting('app.wa_credential_key', true);
+RESET ROLE;
+-- Should return your key, not NULL or empty string
+```
+
+**Security rules:**
+
+- The key must NEVER be placed in `/etc/munshi/environment`, `app/.env.prod`, or any Flutter asset.
+- The key must NEVER be set as a Supabase Edge Function secret (Edge Function secrets are in a different trust boundary and are not accessible from SQL functions).
+- If the key is rotated, all existing `whatsapp_connections` credentials become undecryptable. Re-connect each dealer's WhatsApp account after rotation.
+- Store the key in your password manager or secrets vault — there is no way to recover it from the database.
+
+### WhatsApp Edge Function SSRF protection
+
+The `wa-connect` Edge Function validates `api_base_url` against an allowlist before making outbound requests. Configure the allowlist via Supabase Edge Function secrets:
+
+```bash
+# Comma-separated list of trusted WA API hostnames
+supabase secrets set WA_API_ALLOWED_HOSTS=api.ourwhatsapp.example.com,api.wa.aderalabs.tech
+
+# Or set a single trusted base URL (its hostname becomes the sole allowlist entry)
+supabase secrets set WA_API_BASE_URL=https://api.ourwhatsapp.example.com/v1
+```
+
+If `WA_API_ALLOWED_HOSTS` is set, it takes precedence. If only `WA_API_BASE_URL` is set, its hostname is used as the sole allowlist entry. If neither is set, the Edge Function rejects all client-supplied URLs.
+
+All client-supplied URLs must use HTTPS and must not point to private or internal addresses (loopback, RFC 1918, link-local).
 
 ### Server-side secrets (Edge Functions)
 

@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import '../../inventory/models/property_models.dart';
 import '../../parties/models/party_models.dart';
+import '../../../widgets/deal/stage_strip.dart' show DealStage;
 
 // Re-export DealStage from stage_strip so all deal code uses one enum
 export '../../../widgets/deal/stage_strip.dart' show DealStage;

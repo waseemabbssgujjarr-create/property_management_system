@@ -214,7 +214,11 @@ class _PhotoPreview extends StatelessWidget {
         // image_picker on web returns a blob URL we can load directly
         image = NetworkImage(localPath!);
       } else {
-        image = FileImage(File(localPath!));
+        // FileImage requires dart:io File. On web this branch is never reached
+        // (guarded above by kIsWeb). The dynamic cast satisfies both the web
+        // stub File and the native dart:io File without a platform-specific import.
+        // ignore: avoid_dynamic_calls
+        image = FileImage(File(localPath!) as dynamic);
       }
     } else {
       image = NetworkImage(remoteUrl!);

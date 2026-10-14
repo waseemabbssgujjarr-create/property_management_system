@@ -49,6 +49,7 @@ class VoiceRecordingService {
             bitRate: 64000,
             sampleRate: 22050,
           ),
+          path: '',  // Web: record package manages its own blob URL
         );
       } else {
         await _recorder.start(

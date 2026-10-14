@@ -303,7 +303,7 @@ export class OurWhatsAppApiClient {
       const isValid = await crypto.subtle.verify(
         'HMAC',
         key,
-        sigBytes,
+        sigBytes.buffer as ArrayBuffer,
         encoder.encode(payload),
       )
 
@@ -382,8 +382,12 @@ export class OurWhatsAppApiClient {
           'Content-Type': 'application/json',
           'User-Agent':   'Munshi/1.0',
         },
-        body: body !== null ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
+        body:     body !== null ? JSON.stringify(body) : undefined,
+        signal:   controller.signal,
+        // Prevent redirect-based SSRF: if the WA API server returns a
+        // redirect (3xx), throw instead of following it to an unexpected
+        // destination. A well-behaved API should not redirect auth'd requests.
+        redirect: 'error',
       })
     } finally {
       clearTimeout(timer)

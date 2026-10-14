@@ -19,7 +19,7 @@ class DashboardRepository {
       final threeDaysLater = now.add(const Duration(days: 3));
 
       // Run all queries in parallel
-      final results = await Future.wait([
+      final results = await Future.wait<dynamic>([
         // Expected commission this month (open deals)
         _client.rpc('get_expected_commission_month', params: {
           'p_dealer_id': dealerId,
