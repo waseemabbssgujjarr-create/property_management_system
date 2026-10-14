@@ -190,7 +190,9 @@ class WaConnectionRepository {
         'message_type':     'text',
         'message_body':     messageBody,
         'idempotency_key':  idempotencyKey,
-        'status':           'queued',
+        // 'status' intentionally omitted — database DEFAULT 'queued' applies.
+        // The column-level INSERT GRANT does not include status; setting it
+        // here would cause a permission error at the database level.
       });
     } catch (e) {
       throw mapException(e);
